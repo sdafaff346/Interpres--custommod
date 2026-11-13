@@ -11,7 +11,8 @@ function batchHarness(chat, { skipIfNative = true } = {}) {
     const noop = () => ({ text() { return this; }, show() { return this; }, hide() { return this; } });
     const ctx = vm.createContext({
         chat, calls,
-        getSettings: () => ({ skipIfNative, viewLang: 'ko' }),
+        getSettings: () => ({ skipIfNative, viewLang: 'ko', storyLang: 'en' }),
+        canSkipNative: (a, b) => a !== b,
         currentChatId: () => 'chat-1',
         looksLikeLang: (text, code) => code === 'ko' && /[가-힣]/.test(text),
         translateIncoming: async (id, options) => { calls.push({ id, options }); return true; },

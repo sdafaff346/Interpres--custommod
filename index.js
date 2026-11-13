@@ -46,12 +46,27 @@ const PROMPT_REV = 2;
  * ============================================================ */
 
 const LANG_PROMPT_NAMES = {
-    ko: 'Korean', en: 'English', ja: 'Japanese', zh: 'Chinese',
+    ko: 'Korean', en: 'English', 'en-GB': 'British English', ja: 'Japanese', zh: 'Chinese',
     es: 'Spanish', fr: 'French', de: 'German', ru: 'Russian',
     pt: 'Portuguese', it: 'Italian', vi: 'Vietnamese', th: 'Thai', id: 'Indonesian',
 };
 
 function langName(code) { return LANG_PROMPT_NAMES[code] || code; }
+
+/** 영어 계열(미국식 en, 영국식 en-GB) 여부 */
+function isEnglish(code) { return code === 'en' || code === 'en-GB'; }
+
+/**
+ * 글자만 보고 언어를 가릴 수 있는 쌍인가.
+ * 영어↔영국식 영어처럼 같은 알파벳을 쓰면 "이미 감상어"인지 판별할 수 없으므로
+ * '같은 언어면 건너뛰기'를 적용하지 않는다 (적용하면 전부 건너뛰어 아무것도 번역되지 않는다).
+ */
+function scriptFamily(code) {
+    return ['ko', 'ja', 'zh', 'ru', 'th'].includes(code) ? code : 'latin';
+}
+function canSkipNative(textLang, otherLang) {
+    return scriptFamily(textLang) !== scriptFamily(otherLang);
+}
 
 /* ============================================================
  * 기본 설정
@@ -486,8 +501,18 @@ function pairNotes(srcCode, dstCode) {
         notes.push('Korean speech levels: decide 존댓말/반말 per speaker from the voice cards, the relationship on display, and each speaker\'s standing tone — then hold that choice steady for the whole passage. Prose narration stays in plain literary style (-다) unless the notes direct otherwise.');
         notes.push('Address terms carry the relationship: pick 호칭 (이름+아/야, ~씨, ~님, 직함) that fits how these two actually talk, and keep it consistent.');
     }
-    if (srcCode === 'ko' && dstCode === 'en') {
+    if (srcCode === 'ko' && isEnglish(dstCode)) {
         notes.push('Korean formality does not vanish in English — rebuild it through diction, contractions, and sentence length. Culture-bound address terms listed in the term sheet stay romanized as given.');
+    }
+    if (dstCode === 'en-GB') {
+        notes.push('Write British English throughout: British spelling (colour, realise, centre, travelled, grey, defence), British vocabulary and idiom where a British writer would naturally use them (flat, lift, pavement, queue, mum, mobile, autumn, rubbish, "I\'ve got"), and British usage of prepositions and collective nouns. Do not swap in quaint or stereotyped Britishisms the scene does not call for.');
+        notes.push('Keep the quotation-mark style and every other layout mark exactly as in the passage; British English changes spelling and wording, not markup.');
+    }
+    if (isEnglish(srcCode) && dstCode === 'en-GB') {
+        notes.push('The passage may already be English — it is still NOT finished. American spelling, vocabulary, and idiom count as untranslated: convert every one of them to British English. Change nothing else: same sentences, same meaning, same tone, same structure. Return it verbatim only when it already reads as British English.');
+    }
+    if (srcCode === 'en-GB' && dstCode === 'en') {
+        notes.push('The passage may already be English — convert British spelling, vocabulary, and idiom to American English and change nothing else.');
     }
     if (dstCode === 'ja') {
         notes.push('Japanese register: map each speaker to 敬語/タメ口 by their established manner, and keep role language (役割語) consistent per character.');
@@ -1555,7 +1580,7 @@ async function translateIncoming(mesId, { force = false, fresh = false, resume =
         }
     }
 
-    if (!force && s.skipIfNative && looksLikeLang(source, s.viewLang)) return;
+    if (!force && s.skipIfNative && canSkipNative(s.viewLang, s.storyLang) && looksLikeLang(source, s.viewLang)) return;
     const previousJob = translationJobs.get(`in:${mesId}`);
     if (!force && previousJob?.isCurrent() && ['cancelled', 'failed'].includes(previousJob.status)) return;
 
@@ -1614,7 +1639,7 @@ async function translateOutgoing(mesId, { resume = false } = {}) {
 
     const source = String(message.mes || '');
     if (!source.trim()) return;
-    if (s.skipIfNative && looksLikeLang(source, s.storyLang)) return;
+    if (s.skipIfNative && canSkipNative(s.storyLang, s.viewLang) && looksLikeLang(source, s.storyLang)) return;
 
     const flightKey = `out:${currentChatId()}:${mesId}:${getStringHash(source)}`;
     if (inFlight.has(flightKey)) return;
@@ -1741,7 +1766,7 @@ async function translateWholeChat() {
             const text = String(m.mes || '');
             if (!text.trim()) continue;
             // 내 메시지는 감상어로 직접 쓴 경우가 많다 — 설정과 무관하게 같은 언어 재번역은 하지 않는다
-            if ((s.skipIfNative || m.is_user) && looksLikeLang(text, s.viewLang)) continue;
+            if ((s.skipIfNative || m.is_user) && canSkipNative(s.viewLang, s.storyLang) && looksLikeLang(text, s.viewLang)) continue;
             targets.push(i);
         }
         if (!targets.length) { toastr.info('번역할 메시지가 없습니다.'); return; }
