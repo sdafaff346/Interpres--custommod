@@ -1,11 +1,13 @@
 {
-    "display_name": "Interpres Custom v 1.1.4",
+    "display_name": "Interpres Custom v 1.2.0",
     "loading_order": 25,
+    "requires": [],
+    "optional": [],
     "js": "index.js",
     "css": "style.css",
     "author": "tincansimagine (original); GGANG197E82 (Codeblocks modification)",
-    "version": "1.1.4",
+    "version": "1.2.0",
     "homePage": "https://github.com/GGANG197E82/ST-Interpres-Codeblocks",
-    "description": "Interpres 기반 비공식 개조판. 코드블록 내부 자연어 번역, 형식 보호, 독립 설정 및 번역 캐시.",
+    "description": "Interpres v1.7.0 기반 비공식 개조판. 원본과 함께 설치해도 충돌하지 않는 독립 설정·저장소, HTML 화면 자동 복구, 원문 보기 즉시 전환, 영국식 영어, 내 메시지 포함 전체 번역.",
     "dependencies": []
 }
