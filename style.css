@@ -333,3 +333,9 @@
 #icb_input_translate:focus-visible { outline: 2px solid currentColor; border-radius: 4px; }
 /* Icon fonts must not inherit the browser's italic styling for <i>. */
 #icb_input_translate > i { font-style: normal !important; }
+
+/* 원문 보기 중: 지구 버튼을 강조해 번역본이 숨겨져 있음을 표시 */
+.icb_msg_btn.icb_msg_btn--original {
+    color: var(--SmartThemeQuoteColor, #e18a24);
+    opacity: 1;
+}

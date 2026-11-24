@@ -1567,6 +1567,7 @@ async function translateIncoming(mesId, { force = false, fresh = false, resume =
     if (force) {
         // 사용자가 명시적으로 시켰다 — 원문 보기 선택을 해제한다
         delete message.extra.interpres_codeblocks_original;
+        delete message.extra.interpres_codeblocks_hidden;
     } else {
         // 자동 번역 트리거(CHARACTER_MESSAGE_RENDERED)는 새 응답에만 오지 않는다.
         // ST는 챗을 열 때·"이전 메시지 더 보기"로 스크롤할 때도 메시지마다 이 이벤트를 다시 쏜다.
@@ -1718,23 +1719,60 @@ async function translateInput({ resume = false } = {}) {
     } finally { job.finish(error); }
 }
 
-/** 표시 토글: 번역이 있으면 원문으로, 없으면 번역 실행 */
+/** 원문 보기로 숨겨 둔 번역본이 아직 지금 원문의 것인가 */
+function hiddenTranslationFor(message) {
+    const hidden = message?.extra?.interpres_codeblocks_hidden;
+    if (!hidden || typeof hidden !== 'object' || !hidden.display_text) return null;
+    if (hidden.src !== undefined && hidden.src !== getStringHash(String(message.mes || ''))) return null;
+    return hidden;
+}
+
+/**
+ * 원문 보기 ↔ 번역 보기 토글.
+ * 원문으로 바꿀 때 번역본을 지우지 않고 메시지에 보관해 둔다.
+ * 다시 누르면 API 호출 없이 보관한 번역본을 바로 되돌린다.
+ * 보관본이 없거나(처음 번역) 원문이 바뀌어 맞지 않으면 그때만 번역을 실행한다.
+ */
 async function toggleOrTranslate(mesId) {
     const message = chat[mesId];
     if (!message) return;
-    if (message.extra?.display_text) {
-        delete message.extra.display_text;
-        if (message.extra.reasoning_display_text) {
-            delete message.extra.reasoning_display_text;
+    if (typeof message.extra !== 'object') message.extra = {};
+    const extra = message.extra;
+
+    if (extra.display_text) {
+        // 번역 → 원문
+        const hidden = { display_text: extra.display_text };
+        if (extra.reasoning_display_text) hidden.reasoning_display_text = extra.reasoning_display_text;
+        if (extra.interpres_codeblocks_src !== undefined) hidden.src = extra.interpres_codeblocks_src;
+        extra.interpres_codeblocks_hidden = hidden;
+        delete extra.display_text;
+        if (extra.reasoning_display_text) {
+            delete extra.reasoning_display_text;
             refreshReasoning(mesId);
         }
         // 화면만 바꾸고 끝내면 다음 리렌더에 자동 번역이 도로 덮어쓴다. 선택을 메시지에 남긴다.
-        message.extra.interpres_codeblocks_original = true;
+        extra.interpres_codeblocks_original = true;
         refreshMessage(mesId, message);
         await getContext().saveChat();
         decorateMessages();
         return;
     }
+
+    const hidden = hiddenTranslationFor(message);
+    if (hidden) {
+        // 원문 → 보관해 둔 번역 (즉시, API 호출 없음)
+        extra.display_text = hidden.display_text;
+        if (hidden.reasoning_display_text) extra.reasoning_display_text = hidden.reasoning_display_text;
+        if (hidden.src !== undefined) extra.interpres_codeblocks_src = hidden.src;
+        delete extra.interpres_codeblocks_hidden;
+        delete extra.interpres_codeblocks_original;
+        refreshMessage(mesId, message);
+        if (hidden.reasoning_display_text) refreshReasoning(mesId);
+        await getContext().saveChat();
+        decorateMessages();
+        return;
+    }
+    delete extra.interpres_codeblocks_hidden;   // 원문이 바뀌어 쓸 수 없게 된 보관본
     await translateIncoming(mesId, { force: true });
 }
 
@@ -1801,6 +1839,7 @@ async function clearAllTranslations() {
             delete m.extra.display_text;
             delete m.extra.reasoning_display_text;
             delete m.extra.interpres_codeblocks_original;
+            delete m.extra.interpres_codeblocks_hidden;
             delete m.extra.interpres_codeblocks_src;
             delete m.extra.interpres_codeblocks_code;
         }
@@ -1864,8 +1903,10 @@ async function openComparePopup(mesId) {
         if (edited.trim()) {
             message.extra.display_text = edited;
             delete message.extra.interpres_codeblocks_original;
+            delete message.extra.interpres_codeblocks_hidden;
         } else {
             delete message.extra.display_text;
+            delete message.extra.interpres_codeblocks_hidden;
             message.extra.interpres_codeblocks_original = true;
         }
         refreshMessage(mesId, message);
@@ -1988,11 +2029,17 @@ function decorateMessages() {
         const $extra = $mes.find('.extraMesButtons');
         if (!$extra.length) return;
         if (!$extra.find('.icb_msg_btn').length) {
-            $extra.prepend('<div title="번역 (Interpres Custom)" class="mes_button icb_msg_btn fa-solid fa-earth-asia" data-i18n="[title]번역"></div>');
+            $extra.prepend('<div title="번역 (Interpres Custom)" class="mes_button icb_msg_btn fa-solid fa-earth-asia"></div>');
         }
         const mesId = Number($mes.attr('mesid'));
         decorateCodeToggles(mesId, $mes);
         const hasTrans = Boolean(chat[mesId]?.extra?.display_text);
+        const canRestore = !hasTrans && Boolean(hiddenTranslationFor(chat[mesId]));
+        $extra.find('.icb_msg_btn')
+            .toggleClass('icb_msg_btn--original', canRestore)
+            .attr('title', hasTrans ? '원문 보기 (Interpres Custom)'
+                : canRestore ? '번역 보기 (Interpres Custom) — 원문 보는 중'
+                    : '번역 (Interpres Custom)');
         if (hasTrans) {
             if (!$extra.find('.icb_cmp_btn').length) {
                 $extra.prepend('<div title="원문·번역 대조/편집 (Interpres Custom)" class="mes_button icb_cmp_btn fa-solid fa-scale-balanced"></div>');
@@ -2504,6 +2551,7 @@ function bindEvents() {
         if (m.extra) {
             delete m.extra.display_text;
             delete m.extra.interpres_codeblocks_original;
+            delete m.extra.interpres_codeblocks_hidden;
             delete m.extra.interpres_codeblocks_src;
             delete m.extra.interpres_codeblocks_code;
         }
@@ -2522,6 +2570,7 @@ function bindEvents() {
             discardMessageJobs(mesId);
             delete m.extra.display_text;
             delete m.extra.interpres_codeblocks_src;
+            delete m.extra.interpres_codeblocks_hidden;
             refreshMessage(mesId, m);
             decorateMessages();
             return;
@@ -2539,6 +2588,7 @@ function bindEvents() {
         const hadTranslation = Boolean(m.extra.display_text);
         delete m.extra.display_text;
         delete m.extra.interpres_codeblocks_original;
+        delete m.extra.interpres_codeblocks_hidden;
         delete m.extra.interpres_codeblocks_src;
         delete m.extra.interpres_codeblocks_code;
         // 자동 번역이 꺼져 있어도, 번역이 붙어 있던 메시지라면 새 본문으로 맞춰준다
